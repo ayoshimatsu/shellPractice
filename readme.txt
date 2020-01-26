@@ -1,2 +1,4 @@
-新しいシェルプログラミングの教科書
-三宅英明
+[Book]
+    New textbook of shell programming
+[Author]
+    Hideaki Miyake
