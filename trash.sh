@@ -48,6 +48,14 @@ $SCRIPT_NAME version $VERSION
 END
 }
 
+print_error()
+{
+    cat << END
+$SCRIPT_NAME: $1
+Try --help option for more information
+END
+}
+
 escape_basic_regex()
 {
     printf '%s\n' "$1" | sed 's/[.*\^$[]/\\&/g'
@@ -64,6 +72,10 @@ trash_init()
     fi
 
     if [[ ! -d $trash_file_directory ]]; then
+        mkdir -p -- "$trash_file_directory" || return 1
+    fi
+
+    if [[ ! -d $trash_info_directory ]]; then
         mkdir -p -- "$trash_info_directory" || return 1
     fi
 }
@@ -163,7 +175,7 @@ print_trashinfo(){
     rescape_restore_file_name=$(escape_basic_regex "$restore_file_name")
 
     local file_number
-    file_number=$(printf '%s' "$trashinfo_file_name"
+    file_number=$(printf '%s' "$trashinfo_file_name" \
         | sed -e 's/\.trashinfo$//' -e "s/^${rescape_restore_file_name}_\\{0,1\\}//")
 
     printf '%s %s %s\n' "${info[DeletionDate]}" "${info[Path]}" "$file_number"
@@ -179,8 +191,8 @@ trash_list()
     trash_directory_is_exits "$trash_base_directory" || return 1
 
     local path=
-    find -- "$trash_info_directory" -mindepth 1 -maxdepth 1 -type f -name '*.trashinfo' -print
-        | sort
+    find -- "$trash_info_directory" -mindepth 1 -maxdepth 1 -type f -name '*.trashinfo' -print \
+        | sort \
         | while IFS= read -r path
             do
                 print_trashinfo "$path"
@@ -204,11 +216,134 @@ trash_restore()
     fi
 
     local restore_target_name=
+    if [[ -z $file_number ]]; then
+        restore_target_name=$file_name
+    else
+        restore_target_name=${file_name}_${file_number}
+    fi
 
+    local restore_trashinfo_path=${trash_info_directory}/${restore_target_name}.trashinfo
+    local restore_from_path=${trash_file_directory}/${restore_target_name}
+    if [[ ! -f $restore_trashinfo_path || ! -e $restore_from_path ]]; then
+        print_error "'$restore_target_name': File not found"
+    fi
 
+    local restore_to_path
+    restore_to_path=$(grep '^Path=' -- "$restore_trashinfo_path" | sed 's/^Path=//')
+    if [[ -z $restore_to_path ]]; then
+        print_error "'$restore_trashinfo_path': Restore path not found"
+        return 2
+    fi
 
+    local restore_to_file=${restore_to_path##*/}
+    if [[ $file_name != "$restore_to_file" ]]; then
+        print_error "'$restore_target_name': File not found"
+        return 2
+    fi
 
+    if [[ -e "$restore_to_path" ]]; then
+        print_error "can not restore '$restore_to_path': File already exiats"
+        return 3
+    fi
 
+    local restore_base_path=${restore_to_path%/*}
+    if [[ -n $restore_base_path && ! -d $restore_base_path ]]; then
+        mkdir -p -- "$restore_base_path" || return 4
+    fi
 
+    mv -- "$restore_from_path" "$restore_to_path" || return 5
+    rm -- "$restore_trashinfo_path"
+}
 
+sub_command=
 
+case "$1" in
+    put | list | restore)
+        sub_command=$1
+        shift
+        ;;
+    --help | help)
+        print_help
+        exit 0
+        ;;
+    --version | version)
+        print_version
+        exit 0
+        ;;
+    '')
+        print_error 'missing command'
+        exit 1
+        ;;
+    *)
+        print_error "'$1': Unknown command"
+        exit 1
+        ;;
+esac
+
+parameters=$(getopt -n "$SCRIPT_NAME" -o d: -l directory: -l help -l version -- "$@")
+
+if [[ $? -ne 0 ]]; then
+    echo 'Try --help option for more information' 1>&2
+    exit 1
+fi
+eval set -- "$parameters"
+
+trash_base_directory=${TRASH_DIRECTORY:-$DEFAULT_TRASH_BASE_DIRECTORY}
+#echo "$trash_base_directory: debug"
+
+while [[ $# -gt 0 ]]
+do
+    case "$1" in
+        -d | --directory)
+            trash_base_directory=$2
+            shift 2
+            ;;
+        --help)
+            print_help
+            exit 0
+            ;;
+        --version)
+            print_version
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+    esac
+done
+
+if [[ -z $trash_base_directory ]]; then
+    print_error 'missing directory operand'
+    exit 1
+fi
+
+result=0
+
+if [[ $sub_command == put ]]; then
+    if [[ $# -le 0 ]]; then
+        print_error '"$#" missing file operand'
+        exit 1
+    fi
+
+    for i in "$@"
+    do
+        trash_put "$trash_base_directory" "$i" || result=$?
+    done
+
+elif [[ $sub_command == list ]]; then
+    trash_list "$trash_base_directory"
+    result=$?
+
+elif [[ $sub_command == restore ]]; then
+    if [[ $# -le 0 ]]; then
+        print_error 'missing file operand'
+        exit 1
+    fi
+
+    trash_restore "$trash_base_directory" "$1" "$2"
+    result=$?
+
+fi
+
+exit "$result"
