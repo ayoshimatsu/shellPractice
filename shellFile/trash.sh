@@ -133,12 +133,7 @@ trash_put()
         local rescape_file_name
         rescape_file_name=$(escape_basic_regex "$file")
         local current_max_number
-        current_max_number=$(find -- "$trash_file_directory" -mindepth 1 -maxdepth 1 -printf '%f\n'
-            | grep -e "^${rescape_file_name}\$" -e "^${rescape_file_name}_[0-9][0-9]*\$"
-            | sed "s/^${rescape_file_name}_\\{0,1\\}//"
-            | sed 's/^$/0/'
-            | sort -n -r 
-            | head -n 1)
+        current_max_number=$(find -- "$trash_file_directory" -mindepth 1 -maxdepth 1 -printf '%f\n' | grep -e "^${rescape_file_name}\$" -e "^${rescape_file_name}_[0-9][0-9]*\$" | sed "s/^${rescape_file_name}_\\{0,1\\}//" | sed 's/^$/0/' | sort -n -r | head -n 1)
             
         trashed_file_name+="_$((current_max_number + 1))"
     fi
@@ -226,6 +221,7 @@ trash_restore()
     local restore_from_path=${trash_file_directory}/${restore_target_name}
     if [[ ! -f $restore_trashinfo_path || ! -e $restore_from_path ]]; then
         print_error "'$restore_target_name': File not found"
+        return 2
     fi
 
     local restore_to_path
@@ -242,7 +238,7 @@ trash_restore()
     fi
 
     if [[ -e "$restore_to_path" ]]; then
-        print_error "can not restore '$restore_to_path': File already exiats"
+        print_error "can not restore '$restore_to_path': File already exists"
         return 3
     fi
 
